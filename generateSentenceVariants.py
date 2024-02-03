@@ -28,6 +28,11 @@ def check_subject_in_third_person_singular(doc, contraction_index):
 
 has_indicators = ["got", "been", "done", "seen", "heard", "eaten"]
 
+def find_word_before_s_contractions(sentence):
+    words = sentence.split()
+    words_before_contraction = [word[:-2] for word in words if word.endswith("'s")]
+    return words_before_contraction
+
 def find_closest_verb(doc, contraction_index):
     closest_verb = None
     verb_distance = float('inf')
@@ -93,19 +98,21 @@ def add_variants_for_word(sentence_variants, abbreviation, alt_abbreviations):
     new_variants = []
     for variant in sentence_variants:
         print('variant', variant)
-        if abbreviation.endswith(("'d'", "'s")) and len(alt_abbreviations)> 1:
+        if abbreviation.endswith(("'s")) and len(alt_abbreviations)> 1:
+            continue
+        if abbreviation.endswith(("'d")) and len(alt_abbreviations)> 1:
             new_sentence_variant = expand_contraction(variant, abbreviation, alt_abbreviations)
             print('new_sentence_variant', new_sentence_variant)
-            if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
+            if new_sentence_variant not in sentence_variants:
                 new_variants.append(new_sentence_variant)
         elif abbreviation.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
             new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviations[0])
-            if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
+            if new_sentence_variant not in sentence_variants:
                 new_variants.append(new_sentence_variant)
         else:
             for alt_abbreviation in alt_abbreviations:
                 new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviation)
-                if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
+                if new_sentence_variant not in sentence_variants:
                     new_variants.append(new_sentence_variant)     
     return new_variants
 
@@ -116,6 +123,17 @@ def generate_sentence_variants(sentence, abbreviations):
     
     variants = [sentence]
 
+    if "'s" in sentence:
+        new_variants = []
+        for variant in variants:
+            words_before_s_contractions = find_word_before_s_contractions(variant)
+            for word in words_before_s_contractions:
+                print('word', word)
+                new_sentence_variant = expand_contraction(variant, word + "'s", [word + " is", word + " has"])
+                print('new_sentence_variant', new_sentence_variant)
+                if new_sentence_variant not in variants:
+                    new_variants.append(new_sentence_variant)    
+        variants += new_variants
     for group in abbreviations:
         for abbreviation in group:
             if abbreviation in sentence.lower():
@@ -207,7 +225,7 @@ en_abbreviations = [
 ["not've", "not have"],
 ]
 
-original_sentence = "John's coming over tonight."
+original_sentence = "She's lost her keys again."
 all_variants = generate_sentence_variants(original_sentence, en_abbreviations)
 
 print(all_variants)
