@@ -13,32 +13,75 @@ def get_abbreviation(word):
     else:
         return None
     
-def expand_contraction(sentence, contraction):
+def check_subject_in_third_person_singular(doc, contraction_index):
+    for token in reversed(list(doc)[:contraction_index]):
+        # Überprüfen, ob das Token ein Subjekt ist
+        if "subj" in token.dep_:
+            # spaCy stellt grammatikalische Merkmale wie Person und Zahl zur Verfügung
+            person = token.morph.get("Person")
+            number = token.morph.get("Number")
+            
+            # Überprüfen, ob das Subjekt in der dritten Person Singular steht
+            if person == ['3'] and number == ['Sing']:
+                return True
+    return False
+
+has_indicators = ["got", "been", "done", "seen", "heard", "eaten"]
+
+def find_closest_verb(doc, contraction_index):
+    closest_verb = None
+    verb_distance = float('inf')
+    for token in doc:
+        if token.pos_ == "VERB":
+            distance = abs(token.i - contraction_index)
+            if distance < verb_distance:
+                closest_verb = token
+                verb_distance = distance
+    return closest_verb, verb_distance
+
+    
+def expand_contraction(sentence, contraction, alt_abbreviations):
     doc = nlp(sentence)
     abbreviation = get_abbreviation(contraction)
-    print('abbreviation', abbreviation)
     for token in doc:
         # Finde das Token, das der Kontraktion entspricht
         if token.text.lower() == abbreviation:
-            print("token.text.lower() == abbreviation")
             # Überprüfe das nächste Token im Satz
+            contraction_index = token.i
             next_token_index = token.i + 1
             if next_token_index < len(doc):
                 next_token = doc[next_token_index]
                 # Entscheide für "he's"
                 if abbreviation == "'s":
-                    if next_token.tag_ == 'VBN':  # Partizip Perfekt
-                        return replace_at(sentence, contraction, "he has")
+                    is_third_person_singular = check_subject_in_third_person_singular(doc, contraction_index)
+                    if (next_token.tag_ == "VBN" or (next_token.dep_ == "aux" and next_token.head.tag_ == "VBN")) and is_third_person_singular:    
+                        print("has")
+                        return replace_at(sentence, contraction, alt_abbreviations[1]) # has
+                    elif next_token.text.lower() in has_indicators and is_third_person_singular:
+                        return replace_at(sentence, contraction, alt_abbreviations[1]) # has
+                    elif next_token.tag_ == "VBG":
+                        print("is")
+                        return replace_at(sentence, contraction, alt_abbreviations[0]) # is
                     else:
-                        return replace_at(sentence, contraction, "he is")
+                        # Suche das nächstgelegene Verb zur Kontraktion
+                        closest_verb, verb_distance = find_closest_verb(doc, contraction_index)
+                        if closest_verb:
+                            if closest_verb.tag_ in ["VBD", "VBN"] and verb_distance <= 3: # Begrenze den Abstand für relevante Fälle
+                                print("has (nächstes Verb)")
+                                return replace_at(sentence, contraction, alt_abbreviations[1]) # has
+                            elif closest_verb.tag_ == "VBG" and verb_distance <= 3:
+                                print("is (nächstes Verb)")
+                                return replace_at(sentence, contraction, alt_abbreviations[0]) # is
+                        return replace_at(sentence, contraction, alt_abbreviations[0]) # is
+
                 
                 # Entscheide für "you'd"
                 elif abbreviation == "'d":
                     print("you'd")
                     if next_token.tag_ == 'VBN':  # Partizip Perfekt
-                        return replace_at(sentence, contraction, "you had")
+                        return replace_at(sentence, contraction, alt_abbreviations[1]) # had
                     elif next_token.tag_ == 'VB':  # Infinitiv
-                        return replace_at(sentence, contraction, "you would")
+                        return replace_at(sentence, contraction, alt_abbreviations[0]) # would
                     # Hier könnte eine komplexere Logik oder Kontextanalyse notwendig sein
                     else:
                         return replace_at(sentence, contraction, "you would")
@@ -48,25 +91,19 @@ def expand_contraction(sentence, contraction):
 
 def add_variants_for_word(sentence_variants, abbreviation, alt_abbreviations):
     new_variants = []
-    skipAltAbbreviations = False
-
-    for alt_abbreviation in alt_abbreviations:
-        if skipAltAbbreviations:
-            break  
-        for variant in sentence_variants:
-            print('variant', variant)
-            if abbreviation.endswith(("'d'", "'s")):
-                new_sentence_variant = expand_contraction(variant, abbreviation)
-                print('new_sentence_variant', new_sentence_variant)
-                if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
-                    new_variants.append(new_sentence_variant)
-                    skipAltAbbreviations = True
-            elif abbreviation.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
-                new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviations[0])
-                if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
-                    new_variants.append(new_sentence_variant)
-                    skipAltAbbreviations = True
-            else:
+    for variant in sentence_variants:
+        print('variant', variant)
+        if abbreviation.endswith(("'d'", "'s")) and len(alt_abbreviations)> 1:
+            new_sentence_variant = expand_contraction(variant, abbreviation, alt_abbreviations)
+            print('new_sentence_variant', new_sentence_variant)
+            if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
+                new_variants.append(new_sentence_variant)
+        elif abbreviation.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
+            new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviations[0])
+            if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
+                new_variants.append(new_sentence_variant)
+        else:
+            for alt_abbreviation in alt_abbreviations:
                 new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviation)
                 if (new_sentence_variant not in sentence_variants) and (new_sentence_variant not in new_variants):
                     new_variants.append(new_sentence_variant)     
@@ -91,9 +128,9 @@ en_abbreviations = [
 ["won't", 'will not'],
 ["i'm", 'i am'],
 ["you're", 'you are'],
-["he's", 'he is'],
-["she's", 'she is'],
-["it's", 'it is'],
+["he's", 'he is', 'he has'],
+["she's", 'she is', 'she has'],
+["it's", 'it is', "it has"],
 ["we're", 'we are'],
 ["they're", 'they are'],
 ["i'll", 'i will'],
@@ -138,7 +175,7 @@ en_abbreviations = [
 ["how's", "how is", "how has"], 
 ["let's", "let us"], 
 ["there's", "there is", "there has"], 
-["here's", "here is"],
+["here's", "here is", 'here has'],
 ["what're", "what are"],
 ["who're", "who are"],
 ["where're", "where are"],
@@ -170,7 +207,7 @@ en_abbreviations = [
 ["not've", "not have"],
 ]
 
-original_sentence = "It's because you don't want to be alone."
+original_sentence = "John's coming over tonight."
 all_variants = generate_sentence_variants(original_sentence, en_abbreviations)
 
 print(all_variants)
