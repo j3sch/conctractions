@@ -1,5 +1,6 @@
 import re
 import spacy
+import json
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -13,9 +14,11 @@ def get_abbreviation(word):
     else:
         return None
     
-def add_new_variant(new_variants, new_sentence_variant):
+def add_new_sentence_to_array(new_variants, new_sentence_variant):
     if new_sentence_variant not in new_variants:
-        new_variants.append(new_sentence_variant)
+        # capitaliyze first letter of the sentence
+        new_variant_capilized = new_sentence_variant[0].upper() + new_sentence_variant[1:]
+        new_variants.append(new_variant_capilized)
     
 def check_subject_in_third_person_singular(doc, contraction_index):
     for token in reversed(list(doc)[:contraction_index]):
@@ -32,10 +35,10 @@ def check_subject_in_third_person_singular(doc, contraction_index):
 
 has_indicators = ["got", "been", "done", "seen", "heard", "eaten"]
 
-def find_word_before_s_contractions(sentence):
+def find_word_before_contractions(sentence, contractionEnd):
     words = sentence.split()
-    words_before_contraction = [word[:-2] for word in words if word.endswith("'s")]
-    return words_before_contraction
+    words_before_contractions = [word[:-2] for word in words if word.endswith(contractionEnd)]
+    return words_before_contractions
 
 def find_closest_verb(doc, contraction_index):
     closest_verb = None
@@ -104,22 +107,18 @@ def expand_contraction(sentence, contraction, alt_abbreviations):
                 if abbreviation == "'s":
                     is_third_person_singular = check_subject_in_third_person_singular(doc, contraction_index)
                     if (next_token.tag_ == "VBN" or (next_token.dep_ == "aux" and next_token.head.tag_ == "VBN")) and is_third_person_singular:    
-                        print("has")
                         return replace_at(sentence, contraction, alt_abbreviations[1]) # has
                     elif next_token.text.lower() in has_indicators and is_third_person_singular:
                         return replace_at(sentence, contraction, alt_abbreviations[1]) # has
                     elif next_token.tag_ == "VBG":
-                        print("is")
                         return replace_at(sentence, contraction, alt_abbreviations[0]) # is
                     else:
                         # Suche das nächstgelegene Verb zur Kontraktion
                         closest_verb, verb_distance = find_closest_verb(doc, contraction_index)
                         if closest_verb:
                             if closest_verb.tag_ in ["VBD", "VBN"] and verb_distance <= 3: # Begrenze den Abstand für relevante Fälle
-                                print("has (nächstes Verb)")
                                 return replace_at(sentence, contraction, alt_abbreviations[1]) # has
                             elif closest_verb.tag_ == "VBG" and verb_distance <= 3:
-                                print("is (nächstes Verb)")
                                 return replace_at(sentence, contraction, alt_abbreviations[0]) # is
                         return replace_at(sentence, contraction, alt_abbreviations[0]) # is
 
@@ -129,10 +128,8 @@ def expand_contraction(sentence, contraction, alt_abbreviations):
                     if next_token.tag_ == 'VBN':  # next word == Partizip Perfekt
                         return replace_at(sentence, contraction, alt_abbreviations[1]) # had
                     next_verb = find_next_verb(doc, contraction_index)
-                    if next_verb.tag_ == 'VBN':  # next verb == Partizip Perfekt
+                    if next_verb and next_verb.tag_ == 'VBN':  # next verb == Partizip Perfekt
                         return replace_at(sentence, contraction, alt_abbreviations[1]) # had
-                    if (next_token.text.lower() in ["better", "rather", "sooner", "just as soon"]):
-                        return replace_at(sentence, contraction, alt_abbreviations[1])
                     if next_token.tag_ == 'VB':  # Infinitiv
                         return replace_at(sentence, contraction, alt_abbreviations[0]) # would
                     if next_token.text.lower() in ["have", "'ve", "prefer", "like", "love", "hate"]:
@@ -212,17 +209,13 @@ def get_constraction_index(doc, contraction):
     return None
 
 
-def expand_contration_aint(sentence, contraction, alt_abbreviations):
+def expand_contration_aint(sentence):
     doc = nlp(sentence)
 
-    # contraction_index = get_constraction_index(doc, contraction)
+    contraction = "ain't"
     subj = find_subj(doc)
-    print("subjjjjj", subj)
-    # next_verb = find_next_verb(doc, contraction_index)
     tense = detect_tense(sentence)
-    print("tense", tense)
     if (subj is None): return sentence
-    print("subj", subj)
 
     if subj in ["i", "we", "you", "they"]:
         if tense == "past":
@@ -235,41 +228,24 @@ def expand_contration_aint(sentence, contraction, alt_abbreviations):
             return replace_at(sentence, contraction, "has not")
         else:
             return replace_at(sentence, contraction, "is not")
-    else:
+    else: # subj is it but as a word (e.g. "the dog")
         if tense == "past":
             return replace_at(sentence, contraction, "has not")
         else:
             return replace_at(sentence, contraction, "is not")
     
     
-            
 
-          
-
-
-def add_variants_for_word(sentence_variants, contraction, alt_contractions):
+def add_variants_for_constraction(sentence_variants, contraction, alt_contractions):
     new_variants = []
     for variant in sentence_variants:
-        if contraction.endswith(("'s")) and len(alt_contractions)> 1: # could be removed probably
-            continue
-        if contraction.endswith(("'d")) and len(alt_contractions)> 1:
-            new_sentence_variant = expand_contraction(variant, contraction, alt_contractions)
-            if new_sentence_variant not in sentence_variants:
-                new_variants.append(new_sentence_variant)
-        elif contraction.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
+        if contraction.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
             new_sentence_variant = replace_at(variant, contraction, alt_contractions[0])
-            if new_sentence_variant not in sentence_variants:
-                new_variants.append(new_sentence_variant)
-        elif contraction == "ain't":
-            print('ain\'t')
-            new_sentence_variant = expand_contration_aint(variant, contraction, alt_contractions)
-            if new_sentence_variant not in sentence_variants:
-                new_variants.append(new_sentence_variant)
+            add_new_sentence_to_array(new_variants, new_sentence_variant)
         else:
             for alt_abbreviation in alt_contractions:
                 new_sentence_variant = replace_at(variant, contraction, alt_abbreviation)
-                if new_sentence_variant not in sentence_variants:
-                    new_variants.append(new_sentence_variant)     
+                add_new_sentence_to_array(new_variants, new_sentence_variant)
     return new_variants
 
 def generate_sentence_variants(sentence, contractions):
@@ -283,16 +259,39 @@ def generate_sentence_variants(sentence, contractions):
     if "'s" in sentence:
         new_variants = []
         for variant in variants:
-            words_before_s_contractions = find_word_before_s_contractions(variant)
-            for word in words_before_s_contractions:
-                new_sentence_variant = expand_contraction(variant, word + "'s", [word + " is", word + " has"])
-                add_new_variant(new_variants, new_sentence_variant)
+            words_before_contractions = find_word_before_contractions(variant, "'s")
+            for word in words_before_contractions:
+                if word.lower() == "let":
+                    new_sentence_variant = replace_at(sentence, "let's", "let us")  # would
+                    add_new_sentence_to_array(new_variants, new_sentence_variant)
+                else:
+                    new_sentence_variant = expand_contraction(variant, word + "'s", [word + " is", word + " has"])
+                    add_new_sentence_to_array(new_variants, new_sentence_variant)
         variants += new_variants
     # looks 
+    if "'d" in sentence:
+        new_variants = []
+        for variant in variants:
+            word_before_contractions = find_word_before_contractions(variant, "'d")
+            for word in word_before_contractions:
+                new_sentence_variant = expand_contraction(variant, word + "'d", [word + " would", word + " had"])
+                add_new_sentence_to_array(new_variants, new_sentence_variant)
+        variants += new_variants
+    if "ain't" in sentence:
+        new_variants = []
+        for variant in variants:
+            new_sentence_variant = expand_contration_aint(variant)
+            add_new_sentence_to_array(new_variants, new_sentence_variant)
+        variants += new_variants
     for group in contractions:
         for contraction in group:
+            if contraction.endswith(("'s", "'d")) or contraction == "ain't": # is handled above
+                continue
+
             if contraction in sentence.lower():
-                variants += add_variants_for_word(variants, contraction, [item for item in group if item != contraction])
+                if contraction.startswith("he") and ("she is" in sentence.lower() or "she has" in sentence.lower() or "she will" in sentence.lower() or "she would" in sentence.lower() or "she had" in sentence.lower()):                    
+                    continue
+                variants += add_variants_for_constraction(variants, contraction, [item for item in group if item != contraction])
 
     return variants
 
@@ -380,7 +379,26 @@ en_contractions = [
 ["not've", "not have"],
 ]
 
-original_sentence = "They ain't needed an excuse to celebrate; any reason is good for them!"
-all_variants = generate_sentence_variants(original_sentence, en_contractions)
+# original_sentence = "Let's try something."
+# all_variants = generate_sentence_variants(original_sentence, en_contractions)
+# print(all_variants)
 
-print(all_variants)
+def read_data_from_file(file_name):
+    with open(file_name, "r") as file:
+        data =  json.load(file)
+
+    for item in data: 
+        translations = item["translations"]
+        new_translations = []
+        for translation in translations:
+            new_variants = generate_sentence_variants(translation, en_contractions)
+            for new_variant in new_variants:
+                add_new_sentence_to_array(new_translations, new_variant)
+        item["translations"] = new_translations
+    
+    # write data to file
+    with open(file_name, "w") as file:
+        json.dump(data, file, indent=4)
+            
+
+read_data_from_file("deToEn.json")
