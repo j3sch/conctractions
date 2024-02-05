@@ -13,6 +13,10 @@ def get_abbreviation(word):
     else:
         return None
     
+def add_new_variant(new_variants, new_sentence_variant):
+    if new_sentence_variant not in new_variants:
+        new_variants.append(new_sentence_variant)
+    
 def check_subject_in_third_person_singular(doc, contraction_index):
     for token in reversed(list(doc)[:contraction_index]):
         # Überprüfen, ob das Token ein Subjekt ist
@@ -43,6 +47,46 @@ def find_closest_verb(doc, contraction_index):
                 closest_verb = token
                 verb_distance = distance
     return closest_verb, verb_distance
+
+def find_next_verb(doc, contraction_index):
+    for token in doc[contraction_index+1:]:
+        if token.pos_ == "VERB":
+            return token
+    return None
+
+def does_sentence_express_possibility_wish_condition_hypothesis(doc):
+
+    keywords = {
+        # Modalverben, die Möglichkeiten oder hypothetische Situationen ausdrücken
+        "could", "would", "should", "might", 
+        
+        # Ausdrücke, die Wünsche oder Sehnsüchte darstellen
+        "wish", "want", "hope", "dream", "desire", "long for",
+        
+        # Konjunktionen und Phrasen, die Bedingungen oder Voraussetzungen ausdrücken
+        "if", "in case", "provided that", "assuming that", "supposing", "on the condition that",
+        
+        # Ausdrücke, die Spekulationen oder potenzielle Möglichkeiten darstellen
+        "maybe", "perhaps", "possibly", "potentially",
+        
+        # Ausdrücke, die Hypothesen oder Annahmen ausdrücken
+        "assume", "suppose", "speculate", "think", "believe", "imagine",
+        
+        # Ausdrücke, die Unsicherheit oder Zweifel ausdrücken
+        "uncertain", "not sure", "doubtful", "questionable",
+        
+        # Ausdrücke, die Bedauern oder Reue ausdrücken
+        "regret", "lament",
+        
+        # Ausdrücke, die Fähigkeit oder Kapazität ausdrücken
+        "can", "able to", "capable of",
+    }
+
+
+    for token in doc:
+        if token.lemma_ in keywords:
+            return True
+    return False
 
     
 def expand_contraction(sentence, contraction, alt_abbreviations):
@@ -82,66 +126,177 @@ def expand_contraction(sentence, contraction, alt_abbreviations):
                 
                 # Entscheide für "you'd"
                 elif abbreviation == "'d":
-                    print("you'd")
-                    if next_token.tag_ == 'VBN':  # Partizip Perfekt
+                    if next_token.tag_ == 'VBN':  # next word == Partizip Perfekt
                         return replace_at(sentence, contraction, alt_abbreviations[1]) # had
-                    elif next_token.tag_ == 'VB':  # Infinitiv
+                    next_verb = find_next_verb(doc, contraction_index)
+                    if next_verb.tag_ == 'VBN':  # next verb == Partizip Perfekt
+                        return replace_at(sentence, contraction, alt_abbreviations[1]) # had
+                    if (next_token.text.lower() in ["better", "rather", "sooner", "just as soon"]):
+                        return replace_at(sentence, contraction, alt_abbreviations[1])
+                    if next_token.tag_ == 'VB':  # Infinitiv
                         return replace_at(sentence, contraction, alt_abbreviations[0]) # would
-                    # Hier könnte eine komplexere Logik oder Kontextanalyse notwendig sein
-                    else:
-                        return replace_at(sentence, contraction, "you would")
-
+                    if next_token.text.lower() in ["have", "'ve", "prefer", "like", "love", "hate"]:
+                        return replace_at(sentence, contraction, alt_abbreviations[0])  # would
+                    is_possible_wish_condition_hypothesis = does_sentence_express_possibility_wish_condition_hypothesis(doc)
+                    if is_possible_wish_condition_hypothesis: # Satz eine Möglichkeit, einen Wunsch, eine Bedingung oder eine Hypothese ausdrückt
+                        return replace_at(sentence, contraction, alt_abbreviations[0])  # would
+                    
+                    return replace_at(sentence, contraction, alt_abbreviations[0]) # else
     return sentence  # Falls die Kontraktion nicht gefunden wurde, gib den Originalsatz zurück
 
+def find_subj(doc):
 
-def add_variants_for_word(sentence_variants, abbreviation, alt_abbreviations):
+    subj = None
+    is_subj_before_aint = True
+
+    for token in doc:
+        if token.text.lower() == 'ai':
+            word_before = doc[token.i - 1]
+            if "subj" in word_before.dep_:
+                return word_before.text.lower()
+            else: 
+                is_subj_before_aint = False
+                if subj:
+                    return subj
+        if "subj" in token.dep_:
+            subj = token.text.lower()
+            if is_subj_before_aint is False:
+                return subj
+    return subj
+
+def detect_tense(input_sentence):
+    nlp = spacy.load('en_core_web_sm')
+    doc = nlp(input_sentence)
+
+    tenses = {
+        'past': ['VBD', 'VBN'],
+        'present': ['VB', 'VBP', 'VBZ', 'VBG'],
+        'future': ['MD']
+    }
+    state_verbs = ['allowed', 'required', 'supposed', 'needed', 'expected', 'permitted', 'prohibited', 'forbidden', 'obligated', 'entitled', 'encouraged', 'advised', 'recommended', 'compelled', 'asked', 'instructed', 'ordered', 'commanded', 'enabled', 'empowered', 'authorized', 'sanctioned', 'banned', 'barred', 'prevented', 'restricted', 'limited', 'constrained', 'discouraged', 'dissuaded', 'urged', 'implored', 'begged', 'appealed']
+
+    aux_token = None
+    state_verb_token = None
+
+    def decide_tense(token):
+        if token.tag_ in tenses['past']:
+            return 'past'
+        elif token.tag_ in tenses['present']:
+            return 'present'
+        elif token.tag_ in tenses['future']:
+            return 'future'
+        return None
+
+    for token in doc:
+        if token.text == "ai":
+            continue
+        if token.text in state_verbs:
+            state_verb_token = token
+            continue
+        if token.pos_ == "VERB":
+            return decide_tense(token)
+        if (token.pos_ == "AUX"):
+            aux_token = token
+
+    if state_verb_token:
+        return decide_tense(state_verb_token)
+    if aux_token:
+        return decide_tense(aux_token)
+
+    return "present"
+
+def get_constraction_index(doc, contraction):
+    for token in doc:
+        if token.text.lower() == contraction:
+            return token.i
+    return None
+
+
+def expand_contration_aint(sentence, contraction, alt_abbreviations):
+    doc = nlp(sentence)
+
+    # contraction_index = get_constraction_index(doc, contraction)
+    subj = find_subj(doc)
+    print("subjjjjj", subj)
+    # next_verb = find_next_verb(doc, contraction_index)
+    tense = detect_tense(sentence)
+    print("tense", tense)
+    if (subj is None): return sentence
+    print("subj", subj)
+
+    if subj in ["i", "we", "you", "they"]:
+        if tense == "past":
+            return replace_at(sentence, contraction, "have not")
+        else:
+            if subj == "i": return replace_at(sentence, contraction, "am not") 
+            return replace_at(sentence, contraction, "are not")
+    elif (subj in ["he", "she", "it"]):
+        if tense == "past":
+            return replace_at(sentence, contraction, "has not")
+        else:
+            return replace_at(sentence, contraction, "is not")
+    else:
+        if tense == "past":
+            return replace_at(sentence, contraction, "has not")
+        else:
+            return replace_at(sentence, contraction, "is not")
+    
+    
+            
+
+          
+
+
+def add_variants_for_word(sentence_variants, contraction, alt_contractions):
     new_variants = []
     for variant in sentence_variants:
-        print('variant', variant)
-        if abbreviation.endswith(("'s")) and len(alt_abbreviations)> 1:
+        if contraction.endswith(("'s")) and len(alt_contractions)> 1: # could be removed probably
             continue
-        if abbreviation.endswith(("'d")) and len(alt_abbreviations)> 1:
-            new_sentence_variant = expand_contraction(variant, abbreviation, alt_abbreviations)
-            print('new_sentence_variant', new_sentence_variant)
+        if contraction.endswith(("'d")) and len(alt_contractions)> 1:
+            new_sentence_variant = expand_contraction(variant, contraction, alt_contractions)
             if new_sentence_variant not in sentence_variants:
                 new_variants.append(new_sentence_variant)
-        elif abbreviation.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
-            new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviations[0])
+        elif contraction.endswith(("had", "would", "is", "has")): # Use first alternative 'd, 's
+            new_sentence_variant = replace_at(variant, contraction, alt_contractions[0])
+            if new_sentence_variant not in sentence_variants:
+                new_variants.append(new_sentence_variant)
+        elif contraction == "ain't":
+            print('ain\'t')
+            new_sentence_variant = expand_contration_aint(variant, contraction, alt_contractions)
             if new_sentence_variant not in sentence_variants:
                 new_variants.append(new_sentence_variant)
         else:
-            for alt_abbreviation in alt_abbreviations:
-                new_sentence_variant = replace_at(variant, abbreviation, alt_abbreviation)
+            for alt_abbreviation in alt_contractions:
+                new_sentence_variant = replace_at(variant, contraction, alt_abbreviation)
                 if new_sentence_variant not in sentence_variants:
                     new_variants.append(new_sentence_variant)     
     return new_variants
 
-def generate_sentence_variants(sentence, abbreviations):
+def generate_sentence_variants(sentence, contractions):
 
     if not sentence:
         return []
     
     variants = [sentence]
 
+    # could be contraction like who's, but also possessive like John's
     if "'s" in sentence:
         new_variants = []
         for variant in variants:
             words_before_s_contractions = find_word_before_s_contractions(variant)
             for word in words_before_s_contractions:
-                print('word', word)
                 new_sentence_variant = expand_contraction(variant, word + "'s", [word + " is", word + " has"])
-                print('new_sentence_variant', new_sentence_variant)
-                if new_sentence_variant not in variants:
-                    new_variants.append(new_sentence_variant)    
+                add_new_variant(new_variants, new_sentence_variant)
         variants += new_variants
-    for group in abbreviations:
-        for abbreviation in group:
-            if abbreviation in sentence.lower():
-                variants += add_variants_for_word(variants, abbreviation, [item for item in group if item != abbreviation])
+    # looks 
+    for group in contractions:
+        for contraction in group:
+            if contraction in sentence.lower():
+                variants += add_variants_for_word(variants, contraction, [item for item in group if item != contraction])
 
     return variants
 
-en_abbreviations = [
+en_contractions = [
  ["can't", 'cannot', 'can not'],
 ["won't", 'will not'],
 ["i'm", 'i am'],
@@ -225,7 +380,7 @@ en_abbreviations = [
 ["not've", "not have"],
 ]
 
-original_sentence = "She's lost her keys again."
-all_variants = generate_sentence_variants(original_sentence, en_abbreviations)
+original_sentence = "They ain't needed an excuse to celebrate; any reason is good for them!"
+all_variants = generate_sentence_variants(original_sentence, en_contractions)
 
 print(all_variants)
