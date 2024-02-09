@@ -288,7 +288,7 @@ def generate_sentence_variants(sentence, contractions):
             if contraction.endswith(("'s", "'d")) or contraction == "ain't": # is handled above
                 continue
 
-            if contraction in sentence.lower():
+            if contraction.lower() in sentence.lower():
                 if contraction.startswith("he") and ("she is" in sentence.lower() or "she has" in sentence.lower() or "she will" in sentence.lower() or "she would" in sentence.lower() or "she had" in sentence.lower()):                    
                     continue
                 variants += add_variants_for_constraction(variants, contraction, [item for item in group if item != contraction])
@@ -298,28 +298,28 @@ def generate_sentence_variants(sentence, contractions):
 en_contractions = [
  ["can't", 'cannot', 'can not'],
 ["won't", 'will not'],
-["i'm", 'i am'],
+["I'm", 'I am'],
 ["you're", 'you are'],
 ["he's", 'he is', 'he has'],
 ["she's", 'she is', 'she has'],
 ["it's", 'it is', "it has"],
 ["we're", 'we are'],
 ["they're", 'they are'],
-["i'll", 'i will'],
+["I'll", 'I will'],
 ["you'll", 'you will'],
 ["he'll", 'he will'],
 ["she'll", 'she will'],
 ["it'll", 'it will'],
 ["we'll", 'we will'],
 ["they'll", 'they will'],
-["i'd", 'i would', 'i had'], 
+["I'd", 'I would', 'I had'], 
 ["you'd", 'you would', 'you had'],
 ["he'd", 'he would', 'he had'], 
 ["she'd", 'she would', 'she had'], 
 ["it'd", 'it would', 'it had'], 
 ["we'd", 'we would', 'we had'],  
 ["they'd", 'they would', 'they had'], 
-["i've", 'i have'],
+["I've", 'I have'],
 ["you've", 'you have'],
 ["we've", 'we have'],
 ["they've", 'they have'],
